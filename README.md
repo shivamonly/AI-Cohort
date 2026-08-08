@@ -4,7 +4,7 @@ ABTalks runs a curriculum-grounded, multi-turn technical interview from a learne
 
 ## Live application
 
-The project is configured for Vercel. Add the verified deployment URL here before submitting the hackathon entry.
+Live demo: [https://aixcohort.vercel.app/](https://aixcohort.vercel.app/)
 
 ## Run locally
 
