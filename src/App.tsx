@@ -1,183 +1,46 @@
-import React, { useState, useEffect } from 'react';
-import { Navbar } from './components/Navbar';
-import { CandidateSelectorModal } from './components/CandidateSelectorModal';
-import { InterviewRoom } from './components/InterviewRoom';
-import { FeedbackReportModal } from './components/FeedbackReportModal';
-import { PromptsModal } from './components/PromptsModal';
-import { CandidatesView } from './components/CandidatesView';
-import { CurriculumView } from './components/CurriculumView';
-import { JudgeTesterView } from './components/JudgeTesterView';
-import candidatesRaw from './data/candidates.json' with { type: 'json' };
-import curriculumRaw from './data/curriculum.json' with { type: 'json' };
-import { CandidateProfile, InterviewApiResponse, SessionState } from './types/interview';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { ArrowUp, BarChart3, ChevronRight, CircleDot, Code2, Copy, FileText, Sparkles } from 'lucide-react';
+import type { CandidateProfile, CurriculumData } from './types/interview';
+
+type Chat = { by: 'agent' | 'candidate'; text: string };
 
 export default function App() {
-  const [candidatesList, setCandidatesList] = useState<CandidateProfile[]>(candidatesRaw.candidates as unknown as CandidateProfile[]);
+  const [candidates, setCandidates] = useState<CandidateProfile[]>([]);
+  const [curriculum, setCurriculum] = useState<CurriculumData | null>(null);
+  const [candidateId, setCandidateId] = useState('');
+  const [sessionId] = useState(() => `abtalks-${crypto.randomUUID().slice(0, 8)}`);
+  const [chat, setChat] = useState<Chat[]>([]);
+  const [answer, setAnswer] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [view, setView] = useState<'room' | 'roster' | 'curriculum' | 'api'>('room');
+  const selected = useMemo(() => candidates.find(c => c.member.id === candidateId), [candidates, candidateId]);
 
-  const [activeTab, setActiveTab] = useState<'interview' | 'candidates' | 'curriculum' | 'judge'>('interview');
-  const [selectedCandidate, setSelectedCandidate] = useState<CandidateProfile>(candidatesList[0]);
-  const [session, setSession] = useState<SessionState | null>(null);
-
-  const [isCandidateModalOpen, setIsCandidateModalOpen] = useState(false);
-  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
-  const [isPromptsModalOpen, setIsPromptsModalOpen] = useState(false);
-
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // The browser always refreshes the project data from the API; the bundled data
-  // is only a resilient first paint if a judge opens the interface offline.
   useEffect(() => {
-    fetch('/api/candidates')
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Candidates unavailable')))
-      .then((data) => setCandidatesList(data.candidates as CandidateProfile[]))
-      .catch(() => undefined);
+    Promise.all([fetch('/api/candidates').then(r => r.json()), fetch('/api/curriculum').then(r => r.json())])
+      .then(([people, course]) => { setCandidates(people.candidates); setCandidateId(people.candidates[0]?.member.id || ''); setCurriculum(course); });
   }, []);
 
-  // Initialize or fetch session when candidate changes
-  const handleStartSession = async (candidate: CandidateProfile, customSessionId?: string) => {
-    setIsLoading(true);
-    setError(null);
-
-    const sessionId = customSessionId || `session-${candidate.member.id.toLowerCase()}-${Date.now().toString(36)}`;
-
-    try {
-      const response = await fetch('/api/interview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, candidate }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data: InterviewApiResponse = await response.json();
-
-      // Fetch newly created session object
-      const sessionRes = await fetch(`/api/sessions/${sessionId}`);
-      if (sessionRes.ok) {
-        const sessionData: SessionState = await sessionRes.json();
-        setSession(sessionData);
-      }
-    } catch (err: any) {
-      console.error('Error starting interview session:', err);
-      setError(err.message || 'Failed to start interview session');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Send Turn Message
-  const handleSendTurn = async (sessionId: string, message: string) => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch('/api/interview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, message }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data: InterviewApiResponse = await response.json();
-
-      // Refresh session state
-      const sessionRes = await fetch(`/api/sessions/${sessionId}`);
-      if (sessionRes.ok) {
-        const sessionData: SessionState = await sessionRes.json();
-        setSession(sessionData);
-
-        // If interview ended, auto-open feedback report modal
-        if (sessionData.isComplete) {
-          setIsFeedbackModalOpen(true);
-        }
-      }
-
-      return data;
-    } catch (err: any) {
-      console.error('Error sending turn:', err);
-      setError(err.message || 'Failed to process candidate response');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleResetSession = () => {
-    if (session) {
-      fetch(`/api/sessions/${session.sessionId}`, { method: 'DELETE' }).catch(() => {});
-    }
-    setSession(null);
-  };
-
-  const handleSelectCandidate = (candidate: CandidateProfile) => {
-    setSelectedCandidate(candidate);
-    handleResetSession();
-    setActiveTab('interview');
-  };
-
-  return (
-    <div className="min-h-screen bg-black text-zinc-100 font-sans flex flex-col selection:bg-white selection:text-black">
-      {/* Navbar */}
-      <Navbar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        selectedCandidate={selectedCandidate}
-        onOpenCandidateSelector={() => setIsCandidateModalOpen(true)}
-        onOpenPromptsModal={() => setIsPromptsModalOpen(true)}
-        sessionActive={session !== null && !session.isComplete}
-      />
-
-      {/* Main View Router */}
-      <main className="flex-1 pb-12">
-        {activeTab === 'interview' && (
-          <InterviewRoom
-            candidate={selectedCandidate}
-            session={session}
-            onStartSession={handleStartSession}
-            onSendTurn={handleSendTurn}
-            onResetSession={handleResetSession}
-            isLoading={isLoading}
-            error={error}
-            onViewFeedback={() => setIsFeedbackModalOpen(true)}
-          />
-        )}
-
-        {activeTab === 'candidates' && (
-          <CandidatesView candidates={candidatesList} onSelectCandidate={handleSelectCandidate} />
-        )}
-
-        {activeTab === 'curriculum' && <CurriculumView />}
-
-        {activeTab === 'judge' && <JudgeTesterView />}
-      </main>
-
-      {/* Candidate Selection Modal */}
-      <CandidateSelectorModal
-        isOpen={isCandidateModalOpen}
-        onClose={() => setIsCandidateModalOpen(false)}
-        candidates={candidatesList}
-        selectedCandidate={selectedCandidate}
-        onSelectCandidate={handleSelectCandidate}
-      />
-
-      {/* Feedback Report Modal */}
-      <FeedbackReportModal
-        isOpen={isFeedbackModalOpen}
-        onClose={() => setIsFeedbackModalOpen(false)}
-        session={session}
-        feedback={session?.feedback}
-      />
-
-      {/* Prompts Spec / AI Log Modal */}
-      <PromptsModal
-        isOpen={isPromptsModalOpen}
-        onClose={() => setIsPromptsModalOpen(false)}
-      />
-    </div>
-  );
+  async function start() {
+    if (!selected) return;
+    setBusy(true);
+    const r = await fetch('/api/interview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, candidate: selected }) });
+    const data = await r.json(); setChat([{ by: 'agent', text: data.reply }]); setBusy(false);
+  }
+  async function send(e: FormEvent) {
+    e.preventDefault(); if (!answer.trim() || busy) return;
+    const message = answer.trim(); setAnswer(''); setChat(old => [...old, { by: 'candidate', text: message }]); setBusy(true);
+    const r = await fetch('/api/interview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, message }) });
+    const data = await r.json(); setChat(old => [...old, { by: 'agent', text: data.done ? `${data.reply}\n\n${data.feedback.summary}` : data.reply }]); setBusy(false);
+  }
+  const nav = (id: typeof view, label: string) => <button className={view === id ? 'nav active' : 'nav'} onClick={() => setView(id)}>{label}</button>;
+  return <main className="shell">
+    <header><a className="brand" href="#"><span>AB</span>Talks</a><nav>{nav('room','Interview room')}{nav('roster',`People / ${candidates.length || '—'}`)}{nav('curriculum','Curriculum')}{nav('api','API console')}</nav><div className="live"><i /> system online</div></header>
+    {view === 'room' && <section className="room">
+      <aside className="rail"><p className="eyebrow">INTERVIEW CONTROL</p><h1>Make the conversation count.</h1><p className="muted">Adaptive technical interviews, grounded in the work someone actually completed.</p><label>Candidate<select value={candidateId} onChange={e => { setCandidateId(e.target.value); setChat([]); }}><option value="">Choose candidate</option>{candidates.map(c => <option value={c.member.id} key={c.member.id}>{c.member.name} · {c.member.jobRole}</option>)}</select></label>{selected && <div className="profile"><b>{selected.member.name}</b><small>{selected.member.jobRole} · {selected.member.yearsExperience} years</small><div><span>{selected.signals.missionsCompleted}/31<br/><small>missions</small></span><span>{selected.signals.missionsFirstTry}<br/><small>first try</small></span></div></div>}<button className="start" onClick={start} disabled={busy || !selected}>{chat.length ? 'Restart interview' : 'Begin interview'} <ChevronRight size={16}/></button><p className="session">SESSION · {sessionId}</p></aside>
+      <section className="conversation"><div className="conversation-head"><div><p className="eyebrow">LIVE ROOM</p><h2>{chat.length ? 'In conversation' : 'A better way to assess technical depth.'}</h2></div><div className="meter"><CircleDot size={16}/> {chat.length} turns</div></div><div className="messages">{chat.length === 0 ? <div className="empty"><Sparkles size={24}/><h3>Ready when you are</h3><p>Select a profile and ABTalks will build a focused route through real curriculum evidence.</p></div> : chat.map((m, i) => <article className={`bubble ${m.by}`} key={i}><small>{m.by === 'agent' ? 'ABTALKS / INTERVIEWER' : selected?.member.name?.toUpperCase()}</small><p>{m.text}</p></article>)}{busy && <div className="typing">ABTalks is thinking<span>.</span><span>.</span><span>.</span></div>}</div><form onSubmit={send}><textarea value={answer} onChange={e => setAnswer(e.target.value)} placeholder={chat.length ? 'Write a thoughtful answer…' : 'Start the interview first'} disabled={!chat.length || busy}/><button aria-label="Send" disabled={!chat.length || busy}><ArrowUp size={19}/></button></form></section>
+    </section>}
+    {view === 'roster' && <section className="page"><p className="eyebrow">COHORT DIRECTORY</p><h1>People, not profiles.</h1><div className="cards">{candidates.map(c => <button className="person" key={c.member.id} onClick={() => { setCandidateId(c.member.id); setChat([]); setView('room'); }}><b>{c.member.name}</b><span>{c.member.jobRole}</span><em>{c.signals.missionsCompleted}/31 missions · {c.signals.commitDays} active days</em></button>)}</div></section>}
+    {view === 'curriculum' && <section className="page"><p className="eyebrow">31-DAY ATLAS</p><h1>What the interview is grounded in.</h1><div className="days">{curriculum?.days.map(d => <article key={d.day}><b>{String(d.day).padStart(2,'0')}</b><div><h3>{d.title}</h3><p>{d.objectives.join(' · ')}</p></div><span>{d.tools.join(', ')}</span></article>)}</div></section>}
+    {view === 'api' && <section className="page api"><p className="eyebrow">NO HIDDEN LAYERS</p><h1>Inspect the contract.</h1><div className="api-grid"><article><Code2/><h3>POST /api/interview</h3><pre>{`{ "sessionId": "demo-001",\n  "candidate": { "...": "profile" } }`}</pre><button onClick={() => navigator.clipboard.writeText('/api/interview')}><Copy size={14}/> Copy endpoint</button></article><article><BarChart3/><h3>Response shape</h3><pre>{`{ "reply": "string",\n  "done": false }`}</pre><p>Final responses add a grounded feedback report.</p></article><article><FileText/><h3>Server-side state</h3><p>Conversation history and coverage live in memory for the interview lifetime, keyed only by session ID.</p></article></div></section>}
+  </main>;
 }
