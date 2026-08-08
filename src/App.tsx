@@ -17,20 +17,21 @@ export default function App() {
 
   useEffect(() => {
     Promise.all([fetch('/api/candidates').then(r => r.json()), fetch('/api/curriculum').then(r => r.json())])
-      .then(([people, course]) => { setCandidates(people.candidates); setCandidateId(people.candidates[0]?.member.id || ''); setCurriculum(course); });
+      .then(([people, course]) => { setCandidates(people.candidates); setCandidateId(people.candidates[0]?.member.id || ''); setCurriculum(course); })
+      .catch(() => setChat([{ by: 'agent', text: 'Unable to load interview data. Refresh to reconnect to ABTalks.' }]));
   }, []);
 
   async function start() {
     if (!selected) return;
     setBusy(true);
-    const r = await fetch('/api/interview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, candidate: selected }) });
-    const data = await r.json(); setChat([{ by: 'agent', text: data.reply }]); setBusy(false);
+    try { const r = await fetch('/api/interview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, candidate: selected }) }); const data = await r.json(); setChat([{ by: 'agent', text: data.reply || data.error }]); }
+    catch { setChat([{ by: 'agent', text: 'The interview service is unavailable. Please try again.' }]); } finally { setBusy(false); }
   }
   async function send(e: FormEvent) {
     e.preventDefault(); if (!answer.trim() || busy) return;
     const message = answer.trim(); setAnswer(''); setChat(old => [...old, { by: 'candidate', text: message }]); setBusy(true);
-    const r = await fetch('/api/interview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, message }) });
-    const data = await r.json(); setChat(old => [...old, { by: 'agent', text: data.done ? `${data.reply}\n\n${data.feedback.summary}` : data.reply }]); setBusy(false);
+    try { const r = await fetch('/api/interview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, message }) }); const data = await r.json(); setChat(old => [...old, { by: 'agent', text: data.done ? `${data.reply}\n\n${data.feedback.summary}` : (data.reply || data.error) }]); }
+    catch { setChat(old => [...old, { by: 'agent', text: 'Connection lost. Your answer is still visible above; please try again.' }]); } finally { setBusy(false); }
   }
   const nav = (id: typeof view, label: string) => <button className={view === id ? 'nav active' : 'nav'} onClick={() => setView(id)}>{label}</button>;
   return <main className="shell">
