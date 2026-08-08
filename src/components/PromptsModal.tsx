@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Copy, Check, FileText, Sparkles, ExternalLink, ShieldCheck } from 'lucide-react';
 
 interface PromptsModalProps {
@@ -9,10 +9,19 @@ interface PromptsModalProps {
 export const PromptsModal: React.FC<PromptsModalProps> = ({ isOpen, onClose }) => {
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
+  const [markdown, setMarkdown] = useState('Loading committed PROMPTS.md…');
+  const repoPromptsUrl = 'https://github.com/shivamonly/AI-Cohort/blob/main/PROMPTS.md';
+  const rawPromptsUrl = 'https://raw.githubusercontent.com/shivamonly/AI-Cohort/main/PROMPTS.md';
+
+  useEffect(() => {
+    if (!isOpen) return;
+    fetch(rawPromptsUrl)
+      .then((response) => response.ok ? response.text() : Promise.reject(new Error('Unable to load PROMPTS.md')))
+      .then(setMarkdown)
+      .catch(() => setMarkdown('Could not load the committed PROMPTS.md. Use the GitHub link above to view it directly.'));
+  }, [isOpen]);
 
   if (!isOpen) return null;
-
-  const repoPromptsUrl = 'https://github.com/your-username/your-project/blob/main/PROMPTS.md';
 
   const handleCopyUrl = () => {
     navigator.clipboard.writeText(repoPromptsUrl);
@@ -37,6 +46,12 @@ export const PromptsModal: React.FC<PromptsModalProps> = ({ isOpen, onClose }) =
                 ABTalks Hackathon AI Orchestration & System Prompt Specification
               </p>
             </div>
+          </div>
+
+          <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl space-y-2">
+            <h3 className="font-bold text-white text-sm">Committed PROMPTS.md</h3>
+            <pre className="p-3 bg-slate-950 border border-slate-800 rounded-xl font-mono text-[11px] text-slate-300 whitespace-pre-wrap overflow-x-auto leading-relaxed">{markdown}</pre>
+            <a className="text-indigo-300 hover:text-indigo-200 text-xs underline" href="https://github.com/shivamonly/AI-Cohort/blob/main/BUILD_LOG.md" target="_blank" rel="noreferrer">Open committed BUILD_LOG.md</a>
           </div>
 
           <button

@@ -8,10 +8,11 @@ import { CandidatesView } from './components/CandidatesView';
 import { CurriculumView } from './components/CurriculumView';
 import { JudgeTesterView } from './components/JudgeTesterView';
 import candidatesRaw from './data/candidates.json' with { type: 'json' };
+import curriculumRaw from './data/curriculum.json' with { type: 'json' };
 import { CandidateProfile, InterviewApiResponse, SessionState } from './types/interview';
 
 export default function App() {
-  const candidatesList = candidatesRaw.candidates as unknown as CandidateProfile[];
+  const [candidatesList, setCandidatesList] = useState<CandidateProfile[]>(candidatesRaw.candidates as unknown as CandidateProfile[]);
 
   const [activeTab, setActiveTab] = useState<'interview' | 'candidates' | 'curriculum' | 'judge'>('interview');
   const [selectedCandidate, setSelectedCandidate] = useState<CandidateProfile>(candidatesList[0]);
@@ -23,6 +24,15 @@ export default function App() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The browser always refreshes the project data from the API; the bundled data
+  // is only a resilient first paint if a judge opens the interface offline.
+  useEffect(() => {
+    fetch('/api/candidates')
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Candidates unavailable')))
+      .then((data) => setCandidatesList(data.candidates as CandidateProfile[]))
+      .catch(() => undefined);
+  }, []);
 
   // Initialize or fetch session when candidate changes
   const handleStartSession = async (candidate: CandidateProfile, customSessionId?: string) => {
