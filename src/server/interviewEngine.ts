@@ -48,7 +48,25 @@ export function planInterview(candidate: CandidateProfile): InterviewPlanItem[] 
     return curriculum.days.find((d) => d.day === dayNum);
   };
 
-  // 1. High-Attempt / Struggled missions (attempts >= 3 or passed === false)
+  // 1. Skipped missions: assess awareness without assuming implementation experience.
+  candidate.missions.forEach((m) => {
+    if (m.skipped) {
+      const dayInfo = getDayInfo(m.day);
+      if (dayInfo && !processedDays.has(m.day)) {
+        processedDays.add(m.day);
+        planItems.push({
+          day: m.day,
+          title: m.title || dayInfo.title,
+          moduleName: getModuleTitle(m.day),
+          focusType: 'SKIPPED',
+          skipped: true,
+          reasoning: `Candidate skipped Day ${m.day} (${m.title}). Probe for a high-level mental model without assuming implementation experience.`,
+        });
+      }
+    }
+  });
+
+  // 2. Struggled missions (attempts >= 3 or passed === false)
   candidate.missions.forEach((m) => {
     if ((m.attempts && m.attempts >= 3) || m.passed === false) {
       const dayInfo = getDayInfo(m.day);
@@ -61,25 +79,7 @@ export function planInterview(candidate: CandidateProfile): InterviewPlanItem[] 
           focusType: 'STRUGGLE',
           attempts: m.attempts || 1,
           skipped: false,
-          reasoning: `Candidate had ${m.attempts || 'multiple'} attempts on Day ${m.day} (${m.title}). Focus on underlying conceptual understanding and debugging.`,
-        });
-      }
-    }
-  });
-
-  // 2. Skipped missions
-  candidate.missions.forEach((m) => {
-    if (m.skipped) {
-      const dayInfo = getDayInfo(m.day);
-      if (dayInfo && !processedDays.has(m.day)) {
-        processedDays.add(m.day);
-        planItems.push({
-          day: m.day,
-          title: m.title || dayInfo.title,
-          moduleName: getModuleTitle(m.day),
-          focusType: 'SKIPPED',
-          skipped: true,
-          reasoning: `Candidate skipped Day ${m.day} (${m.title}). Probe awareness of topics and evaluate real knowledge gaps.`,
+          reasoning: `Candidate needed ${m.attempts || 'multiple'} attempts on Day ${m.day} (${m.title}). Probe root-cause understanding and debugging.`,
         });
       }
     }
@@ -103,7 +103,7 @@ export function planInterview(candidate: CandidateProfile): InterviewPlanItem[] 
     }
   });
 
-  // 4. Fill in remaining major days to ensure breadth across >= 4 modules
+  // 4. Integration days are deliberately retained for later systems-level synthesis.
   const priorityKeyDays = [31, 23, 22, 16, 12, 10, 7, 3];
   priorityKeyDays.forEach((dayNum) => {
     if (!processedDays.has(dayNum)) {
@@ -121,8 +121,7 @@ export function planInterview(candidate: CandidateProfile): InterviewPlanItem[] 
     }
   });
 
-  // Ensure Capstone (Day 31) or Day 22/23 is included near the start or middle
-  return planItems.slice(0, 10);
+  return planItems.slice(0, 12);
 }
 
 /**
@@ -166,11 +165,8 @@ export async function generateNextTurn(
       trimmed.toLowerCase().includes('agent') ||
       trimmed.toLowerCase().includes('docker')
     ) {
-      // 50% chance to follow up if candidate mentioned a core framework/tool
-      if (Math.random() > 0.3) {
-        isFollowUp = true;
-        followUpReason = 'Candidate mentioned specific technical tools — drilling into implementation trade-offs.';
-      }
+      isFollowUp = true;
+      followUpReason = 'Candidate mentioned a specific technical tool — drilling into its implementation trade-offs.';
     }
   }
 
@@ -275,6 +271,13 @@ Requirements:
     isFollowUp,
     candidateAnswer
   );
+
+  const referencedDays = daysDiscussed.slice(0, 3);
+  const dayLabel = (day: number | undefined) => {
+    const item = curriculum.days.find((entry) => entry.day === day);
+    return item ? `Day ${item.day} — ${item.title}` : 'the discussed curriculum topic';
+  };
+  const shortAnswers = session.turns.filter((turn) => (turn.answer || '').trim().split(/\s+/).filter(Boolean).length < 18);
 
   return {
     reply: fallbackReply,
@@ -410,18 +413,18 @@ function generateFallbackFeedback(session: SessionState): FeedbackReport {
   return {
     summary: `${candidate.member.name} completed an 8-turn technical interview covering ${daysDiscussed.length} distinct cohort curriculum days. Overall, they demonstrated solid foundational awareness as a ${candidate.member.jobRole}, with particular clarity on practical build missions.`,
     strengths: [
-      `Strong grasp of core AI application workflows across Day ${daysDiscussed[0] || 7} and Day ${daysDiscussed[1] || 16}.`,
-      `Demonstrated familiarity with key cohort tools including FastAPI, LangChain, and vector retrieval pipelines.`,
-      `Responded adaptively to follow-up probes regarding trade-offs and error handling.`,
+      `Engaged with the interview prompts on ${dayLabel(referencedDays[0])}.`,
+      `Provided technical communication across ${dayLabel(referencedDays[1] || referencedDays[0])}.`,
+      `Completed a multi-topic discussion spanning ${daysDiscussed.length} real curriculum days.`,
     ],
     gaps: [
-      `Could provide deeper mathematical and architectural explanations when probed on vector similarity algorithms.`,
-      `Opportunity to elaborate further on edge-case error handling and production monitoring strategies.`,
+      shortAnswers.length ? `Several answers were brief, including the response to ${dayLabel(shortAnswers[0].day)}; add implementation steps and concrete decisions.` : `Continue adding concrete implementation details when discussing ${dayLabel(referencedDays[0])}.`,
+      `Practice connecting the choices from ${dayLabel(referencedDays[1] || referencedDays[0])} to trade-offs and edge cases.`,
     ],
     next: [
-      `Revisit Day 12 Prompt Engineering objectives to master few-shot and chain-of-thought system prompts.`,
-      `Review Day 23 Model Context Protocol (MCP) tool integration patterns to strengthen multi-agent designs.`,
-      `Practice articulating trade-offs between RAG vector search and structured database lookup under latency constraints.`,
+      `Revisit ${dayLabel(referencedDays[0])} and explain its first objective aloud with an implementation example.`,
+      `Review ${dayLabel(referencedDays[1] || referencedDays[0])} and document one trade-off for its tools.`,
+      `Use ${dayLabel(referencedDays[2] || referencedDays[0])} for a short build-and-explain practice session.`,
     ],
   };
 }

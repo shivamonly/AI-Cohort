@@ -178,10 +178,8 @@ app.post('/api/interview', async (req: Request, res: Response) => {
     let session = sessionStore.get(sessionId);
 
     // --- CASE 1: START INTERVIEW (First turn with candidate object provided) ---
-    if (candidate || !session) {
-      const activeCandidate: CandidateProfile =
-        candidate ||
-        (candidatesRaw.candidates[0] as unknown as CandidateProfile);
+    if (candidate) {
+      const activeCandidate = candidate as CandidateProfile;
 
       const plan = planInterview(activeCandidate);
 
@@ -217,6 +215,13 @@ app.post('/api/interview', async (req: Request, res: Response) => {
         reply: turnResult.reply,
         done: false,
       });
+      return;
+    }
+
+    // A message can only advance a session that was explicitly started with a candidate.
+    // Keeping this error body separate from successful contract responses avoids fabricating state.
+    if (!session) {
+      res.status(404).json({ error: 'Unknown sessionId. Start the interview with a candidate object first.' });
       return;
     }
 
@@ -274,6 +279,7 @@ app.post('/api/interview', async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     console.error('Error handling /api/interview:', err);
-    res.status(500).json({ error: err.message || 'Internal Server Error' });
+    // Preserve valid JSON and do not expose implementation details.
+    res.status(500).json({ error: 'Interview request could not be completed. Please retry.' });
   }
 });
