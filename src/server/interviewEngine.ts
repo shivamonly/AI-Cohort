@@ -272,13 +272,6 @@ Requirements:
     candidateAnswer
   );
 
-  const referencedDays = daysDiscussed.slice(0, 3);
-  const dayLabel = (day: number | undefined) => {
-    const item = curriculum.days.find((entry) => entry.day === day);
-    return item ? `Day ${item.day} — ${item.title}` : 'the discussed curriculum topic';
-  };
-  const shortAnswers = session.turns.filter((turn) => (turn.answer || '').trim().split(/\s+/).filter(Boolean).length < 18);
-
   return {
     reply: fallbackReply,
     dayUsed: targetPlanItem.day,
@@ -409,6 +402,12 @@ function generateFallbackQuestion(
 function generateFallbackFeedback(session: SessionState): FeedbackReport {
   const candidate = session.candidate;
   const daysDiscussed = Array.from(new Set(session.turns.map((t) => t.day)));
+  const referencedDays = daysDiscussed.slice(0, 3);
+  const dayLabel = (day: number | undefined) => {
+    const item = curriculum.days.find((entry) => entry.day === day);
+    return item ? `Day ${item.day} — ${item.title}` : 'the discussed curriculum topic';
+  };
+  const shortAnswers = session.turns.filter((turn) => (turn.answer || '').trim().split(/\s+/).filter(Boolean).length < 18);
 
   return {
     summary: `${candidate.member.name} completed an 8-turn technical interview covering ${daysDiscussed.length} distinct cohort curriculum days. Overall, they demonstrated solid foundational awareness as a ${candidate.member.jobRole}, with particular clarity on practical build missions.`,
