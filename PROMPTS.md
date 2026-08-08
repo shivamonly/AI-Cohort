@@ -1,113 +1,33 @@
-# System Prompts & Orchestration Spec — AI Interview Agent
-**ABTalks Vibe Code Hackathon**
+# ABTalks prompt architecture
 
-> 📜 **Development History & Build Log:** For the chronological dev diary and iteration log, see [BUILD_LOG.md](./BUILD_LOG.md).
+This document describes the prompt and fallback strategy used by the current application. The chronological development record is in [BUILD_LOG.md](./BUILD_LOG.md).
 
-This document details the system prompt architecture, candidate personalization rules, question generation strategies, and feedback evaluation prompts powering the AI Interview Agent.
+## Planning
 
----
+For each start request, ABTalks constructs a bounded topic plan from the supplied candidate profile and the local 31-day, 8-module curriculum. The order is:
 
-## 1. Candidate Personalization & Interview Planning Engine
+1. Skipped missions — assess a mental model without assuming implementation experience.
+2. Struggled missions — `attempts >= 3` or `passed: false`; probe root cause and debugging.
+3. First-try passes — probe trade-offs, edge cases, and scaling.
+4. Integration milestones — including Days 31, 23, and 22, used to maintain breadth.
 
-### Logic Overview
-Before the first question is generated, the agent reads the candidate profile (`candidates.json`) and runs a prioritization algorithm across the 31 cohort curriculum days:
+## Interview generation
 
-1. **Struggle Identification (`attempts >= 3` or `passed: false`)**:
-   - Focus: Root-cause debugging, core mental models, error handling, and foundational mechanics.
-2. **Knowledge Gap Identification (`skipped: true`)**:
-   - Focus: Conceptual awareness, willingness to acknowledge gaps, and ability to reason about unknown technical domains.
-3. **Mastery Probing (`attempts === 1` & `passed: true`)**:
-   - Focus: Architectural trade-offs, scalability bottlenecks, edge cases, and alternative design choices.
-4. **Capstone & Multi-Module Milestones**:
-   - Focus: Cross-cutting integration (e.g. Day 31 Capstone, Day 22 Multi-Agent, Day 23 MCP).
+Each LLM call receives the candidate background, selected real curriculum day, day objectives, day tools, plan rationale, previous transcript, and latest answer. It is instructed to return only interviewer text and to ground every question in the selected curriculum day.
 
-The planner constructs a 10-item prioritized topic queue spanning **≥4 distinct curriculum days**.
+The follow-up router is deterministic in code:
 
----
+- fewer than 18 words → ask for concrete steps or implementation details;
+- uncertainty phrases such as `not sure`, `don't know`, or `skipped` → ask for a supportive high-level model;
+- mentions of RAG, vector search, MCP, LangChain, agents, or Docker → drill into the named area;
+- otherwise → move to the next unused plan day.
 
-## 2. Interviewer System Prompt (`gemini-3.6-flash`)
+The transcript is held server-side by `sessionId` and supplied to each generation call.
 
-```text
-You are a senior technical interviewer at an elite AI engineering firm conducting an adaptive, multi-turn technical interview.
+## Completion and feedback
 
-Candidate Info:
-- Name: {candidate.member.name}
-- Job Role: {candidate.member.jobRole} ({candidate.member.yearsExperience} yrs exp, {candidate.member.education})
-- Status: {candidate.member.status}
-- Cohort Performance Signals: {candidate.signals.missionsCompleted} missions completed, {candidate.signals.missionsFirstTry} first-try passes, {candidate.signals.commitDays} active commit days.
+The API completes when at least 8 questions have been asked across at least 4 different days. It returns only `{ reply, done, feedback }` on completion. Feedback contains `summary`, `strengths`, `gaps`, and `next`; the fallback generator uses only days and answers present in the stored transcript.
 
-Target Curriculum Topic for this Turn:
-- Day {targetPlanItem.day}: {targetPlanItem.title} ({targetPlanItem.moduleName})
-- Objectives: {objectives}
-- Tools used in mission: {tools}
-- Candidate Background for this Day: {targetPlanItem.reasoning}
+## Reliability
 
-Current Interview Context:
-- Question Number: {currentTurnCount + 1}
-- Days Covered so far: {daysCoveredList}
-- Mode: {isFollowUp ? 'ADAPTIVE FOLLOW-UP' : 'NEW TOPIC PROBE'}
-
-Previous Turn History:
-{transcriptHistory}
-
-Candidate's Latest Response: "{candidateAnswer}"
-
-Instructions:
-- If Turn 1: Greet {candidate.member.name} briefly and professionally (1-2 sentences), acknowledging their background. Then ask your first technical question grounded specifically in Day {targetPlanItem.day} ({targetPlanItem.title}).
-- If Adaptive Follow-Up: Provide a concise follow-up question that directly addresses what {candidate.member.name} just said in their response. Reference a specific term or phrase they used, or probe deeper into trade-offs/edge cases.
-- If Advancing Topic: Acknowledge the previous answer briefly (1 sentence), then transition smoothly to Day {targetPlanItem.day}: {targetPlanItem.title}. Ask a grounded open-ended question about how they implemented objectives using tools.
-
-Requirements:
-- Sound like a real human technical interviewer: direct, curious, professional.
-- Do NOT output preamble, markdown headers, or meta commentary. Return ONLY the spoken interviewer text.
-- Ground the question strictly in Day {targetPlanItem.day}'s curriculum objectives and tools.
-```
-
----
-
-## 3. Adaptive Follow-Up Decision Triggers
-
-The interviewer engine evaluates each candidate answer using four dynamic criteria:
-
-1. **Length & Depth Check**:
-   - *Condition*: Candidate response is < 18 words.
-   - *Action*: Trigger follow-up to ask for specific code structure, parameter choices, or step-by-step logic.
-2. **Uncertainty Signal**:
-   - *Condition*: Answer includes "unsure", "skipped", "don't recall".
-   - *Action*: Trigger supportive follow-up asking for high-level mental model or pseudo-code approach.
-3. **Keyword Drill-down**:
-   - *Condition*: Candidate explicitly names frameworks (e.g., "ChromaDB", "LoRA", "MCP", "LangChain", "FastAPI").
-   - *Action*: Drill into implementation specifics (e.g. "How did you set up vector distance metrics in ChromaDB?").
-4. **Scale & Trade-off Push**:
-   - *Condition*: Detailed, confident answer provided.
-   - *Action*: Push to the next engineering tier (e.g. "What happens when query volume increases 100x?").
-
----
-
-## 4. Final Evaluation & Feedback Prompt
-
-Triggered when turn count **≥ 8** and distinct days covered **≥ 4**:
-
-```text
-Analyze the following technical interview transcript for {candidate.member.name} ({candidate.member.jobRole}, {candidate.member.yearsExperience} yrs exp).
-Candidate Cohort Signals: {candidate.signals.missionsCompleted}/31 missions completed, {candidate.signals.missionsFirstTry} first-try passes.
-
-Interview Transcript:
-{transcriptStr}
-
-Generate structured, actionable feedback evaluating candidate's performance across the cohort curriculum topics discussed.
-Return a valid JSON object matching this exact schema:
-{
-  "summary": "2-4 sentence overall assessment of technical depth, clarity, and readiness.",
-  "strengths": ["3-4 concrete strengths tied to specific days/topics discussed"],
-  "gaps": ["3-4 specific technical gaps or areas needing improvement observed in answers"],
-  "next": ["3-4 actionable study recommendations referencing specific curriculum days/objectives"]
-}
-```
-
----
-
-## 5. Failure-Safes & API Contract Guarantees
-
-- **Guaranteed JSON Contract**: The Express endpoint wraps all LLM responses and enforces exact `POST /api/interview` contract compliance.
-- **Deterministic Fallback Generator**: If Gemini API rate limits or network issues occur, a grounded deterministic fallback engine continues the conversation without breaking the interview flow or returning HTTP errors.
+Gemini is optional. If the model is unavailable or returns an unusable result, the server creates a grounded fallback question or feedback report. This preserves valid JSON responses and avoids exposing model failures to the candidate.
